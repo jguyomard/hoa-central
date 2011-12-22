@@ -65,7 +65,7 @@ namespace Hoa\Regex\Visitor {
 /**
  * Class \Hoa\Regex\Visitor\UniformPreCompute.
  *
- * …
+ * Pre-compute the AST.
  *
  * @author     Ivan Enderlin <ivan.enderlin@hoa-project.net>
  * @copyright  Copyright © 2007-2011 Ivan Enderlin.
@@ -74,26 +74,53 @@ namespace Hoa\Regex\Visitor {
 
 class UniformPreCompute implements \Hoa\Visitor\Visit {
 
+    /**
+     * Given size: n.
+     *
+     * @var \Hoa\Regex\Visitor\UniformPreCompute int
+     */
     protected $_n = 0;
 
-    public function __construct ( $n ) {
 
-        $this->_n = $n;
+
+    /**
+     * Initialize the size.
+     *
+     * @access  public
+     * @param   int  $n    Size.
+     * @return  void
+     */
+    public function __construct ( $n = 0 ) {
+
+        $this->setSize($n);
 
         return;
     }
 
+   /**
+     * Visit an element.
+     *
+     * @access  public
+     * @param   \Hoa\Visitor\Element  $element    Element to visit.
+     * @param   mixed                 &$handle    Handle (reference).
+     * @param   mixed                 $eldnah     Handle (not reference).
+     * @return  mixed
+     */
     public function visit ( \Hoa\Visitor\Element $element,
                             &$handle = null, $eldnah = null ) {
 
         $n                  = null === $eldnah ? $this->_n : $eldnah;
         $data               = &$element->getData();
-        $data['precompute'] = array('n' => 0);
+
+        if(!isset($data['precompute']))
+            $data['precompute'] = array($n => array());
+
+        $data['precompute'][$n]['n'] = 0;
 
         if(0 === $n)
             return 0;
 
-        $out                = &$data['precompute']['n'];
+        $out = &$data['precompute'][$n]['n'];
 
         switch($element->getId()) {
 
@@ -104,6 +131,7 @@ class UniformPreCompute implements \Hoa\Visitor\Visit {
               break;
 
             case '#alternation':
+            case '#class':
                 foreach($element->getChildren() as $child)
                     $out += $child->accept($this, $handle, $n);
 
@@ -115,6 +143,9 @@ class UniformPreCompute implements \Hoa\Visitor\Visit {
                     $element->getChildrenNumber(),
                     $n
                 );
+
+                if(!isset($data['precompute'][$n]['Γ']))
+                    $data['precompute'][$n]['Γ'] = array();
 
                 foreach($Γ as $γ) {
 
@@ -130,10 +161,95 @@ class UniformPreCompute implements \Hoa\Visitor\Visit {
                             $_γ
                         );
 
+                    if(0 !== $oout)
+                        $data['precompute'][$n]['Γ'][] = $γ;
+
                     $out += $oout;
                 }
 
                 return $out;
+              break;
+
+            case '#quantification':
+                if(!isset($data['precompute'][$n]['xy']))
+                    $data['precompute'][$n]['xy'] = array();
+
+                $xy = $element->getChild(1)->getValueValue();
+                $x  = 0;
+                $y  = 0;
+
+                switch($element->getChild(1)->getValueToken()) {
+
+                    case 'zero_or_one':
+                        $y = 1;
+                      break;
+
+                    case 'zero_or_more':
+                        $y = null;
+                      break;
+
+                    case 'one_or_more':
+                        $x = 1;
+                        $y = null;
+                      break;
+
+                    case 'exactly_n':
+                        $x = $y = (int) substr($xy, 1, -1);
+                      break;
+
+                    case 'n_to_m':
+                        $xy = explode(',', substr($xy, 1, -1));
+                        $x  = (int) trim($xy[0]);
+                        $y  = (int) trim($xy[1]);
+                      break;
+
+                    case 'n_or_more':
+                        $xy = explode(',', substr($xy, 1, -1));
+                        $x  = (int) trim($xy[0]);
+                        $y  = null;
+                      break;
+                }
+
+                for($α = $x; $α <= $y; ++$α) {
+
+                    $data['precompute'][$n]['xy'][$α] = array();
+                    $Γ  = \Hoa\Math\Combinatorics\Combination::Γ($α, $n);
+                    $ut = 0;
+
+                    foreach($Γ as $γ) {
+
+                        if(true === in_array(0, $γ))
+                            continue;
+
+                        $oout = 1;
+
+                        foreach($γ as $β => $_γ)
+                            $oout *= $element->getChild(0)->accept(
+                                $this,
+                                $handle,
+                                $_γ
+                            );
+
+                        if(0 !== $oout)
+                            $data['precompute'][$n]['xy'][$α]['Γ'] = $γ;
+
+                        $ut += $oout;
+                    }
+
+                    $data['precompute'][$n]['xy'][$α]['n'] = $ut;
+                    $out += $ut;
+                }
+
+                return $out;
+              break;
+
+            case '#range':
+                return $out = max(
+                    0,
+                      ord($element->getChild(1)->getValueValue())
+                    - ord($element->getChild(0)->getValueValue())
+                    + 1
+                );
               break;
 
             case 'token':
@@ -141,6 +257,32 @@ class UniformPreCompute implements \Hoa\Visitor\Visit {
         }
 
         return -1;
+    }
+
+    /**
+     * Set size.
+     *
+     * @access  public
+     * @param   int  $n    Size.
+     * @return  int
+     */
+    public function setSize ( $n ) {
+
+        $old      = $this->_n;
+        $this->_n = $n;
+
+        return $old;
+    }
+
+    /**
+     * Get size.
+     *
+     * @access  public
+     * @return  int
+     */
+    public function getSize ( ) {
+
+        return $this->_n;
     }
 }
 
